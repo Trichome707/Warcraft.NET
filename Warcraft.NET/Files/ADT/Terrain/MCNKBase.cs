@@ -44,6 +44,11 @@ namespace Warcraft.NET.Files.ADT.Terrain
         public MCSE SoundEmitters { get; set; }
 
         /// <summary>
+        /// Gets or sets the legacy pre-WotLK liquid data addressed by this MCNK header.
+        /// </summary>
+        public MCLQ LegacyWater { get; set; }
+
+        /// <summary>
         /// Initializes a new instance of the <see cref="MCNKBase"/> class.
         /// </summary>
         public MCNKBase()
@@ -108,6 +113,25 @@ namespace Warcraft.NET.Files.ADT.Terrain
                 } catch (ChunkSignatureNotFoundException)
                 {
                     // Ignore missing chunks
+                }
+
+                // MCLQ is a legacy subchunk addressed by the MCNK header rather than a
+                // sequential subchunk. Legacy ADTs can write zero (or otherwise unreliable)
+                // IFF MCLQ lengths, so Header.LiquidSize bounds the payload. A size of 8
+                // denotes the newer top-level MH2O path.
+                if (Header.LiquidOffset > 0 && Header.LiquidSize > 8)
+                {
+                    var mclqOffset = Header.LiquidOffset - 8;
+                    var mclqPayloadSize = Header.LiquidSize - 8;
+                    if (mclqOffset <= ms.Length - 8 && mclqPayloadSize <= ms.Length - mclqOffset - 8)
+                    {
+                        ms.Seek(mclqOffset, SeekOrigin.Begin);
+                        var signature = br.ReadBinarySignature();
+                        _ = br.ReadUInt32(); // Legacy clients may set this IFF length to zero.
+
+                        if (signature == MCLQ.Signature)
+                            LegacyWater = new MCLQ(br.ReadBytes((int)mclqPayloadSize), Header.Flags);
+                    }
                 }
             }
         }
