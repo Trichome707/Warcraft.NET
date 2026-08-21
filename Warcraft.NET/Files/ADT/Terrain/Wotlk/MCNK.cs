@@ -82,9 +82,11 @@ namespace Warcraft.NET.Files.ADT.Terrain.Wotlk
                 // Read MCRF
                 if (Header.ModelReferencesOffset > 0)
                 {
-                    ms.Seek(Header.TextureLayersOffset + headerAndSizeOffset, SeekOrigin.Begin);
+                    ms.Seek(Header.ModelReferencesOffset + headerAndSizeOffset, SeekOrigin.Begin);
                     ModelReferences = br.ReadIFFChunk<MCRF>(false, false);
-                    ModelReferences.PostLoadReferences(Header.ModelReferenceCount, Header.WorldModelObjectReferenceCount);
+
+                    if (ModelReferences != null)
+                        ModelReferences.PostLoadReferences(Header.ModelReferenceCount, Header.WorldModelObjectReferenceCount);
                 }
 
                 // Read MCSH. The shadow map is optional in the ADT format: its presence is
