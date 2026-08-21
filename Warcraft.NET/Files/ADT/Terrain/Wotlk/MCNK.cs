@@ -87,12 +87,17 @@ namespace Warcraft.NET.Files.ADT.Terrain.Wotlk
                     ModelReferences.PostLoadReferences(Header.ModelReferenceCount, Header.WorldModelObjectReferenceCount);
                 }
 
-                // Read MCSH
+                // Read MCSH. The shadow map is optional in the ADT format: its presence is
+                // signalled per-MCNK by the has_mcsh flag, and ADTs without baked shadows omit
+                // the subchunk while still carrying a non-zero ofsShadow. Ask for the default
+                // instead of a throw so an absent MCSH simply parses as absent.
                 if (Header.BakedShadowsOffset > 0)
                 {
                     ms.Seek(Header.BakedShadowsOffset + headerAndSizeOffset, SeekOrigin.Begin);
-                    BakedShadows = br.ReadIFFChunk<MCSH>(false, false);
-                    Header.Flags |= MCNKFlags.HasBakedShadows;
+                    BakedShadows = br.ReadIFFChunk<MCSH>(true, false);
+
+                    if (BakedShadows != null)
+                        Header.Flags |= MCNKFlags.HasBakedShadows;
                 }
 
                 // Read MCAL
