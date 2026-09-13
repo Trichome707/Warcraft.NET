@@ -63,6 +63,7 @@ namespace Warcraft.NET.Files.M2.Chunks
         public List<TextureLookupStruct> TextrueLookup { get { return TextureLookup; } set { TextureLookup = value; } }
 
         private byte[] data;
+        private uint sourceOffset;
 
         /// <summary>
         /// Initializes a new instance of the <see cref="MD21"/> class.
@@ -78,6 +79,24 @@ namespace Warcraft.NET.Files.M2.Chunks
         public MD21(byte[] inData)
         {
             LoadBinaryData(inData);
+        }
+
+        /// <summary>Initializes an MD20 payload with an explicit external offset base.</summary>
+        public MD21(byte[] inData, uint sourceOffset)
+        {
+            this.sourceOffset = sourceOffset;
+            LoadBinaryData(inData);
+        }
+
+        /// <summary>Parses a literal MD21 wrapper. MD20 offsets are relative to its payload.</summary>
+        public static MD21 FromWrappedFile(byte[] inData)
+        {
+            if (inData == null || inData.Length < 8 || !inData.AsSpan(0, 4).SequenceEqual("MD21"u8))
+                throw new InvalidDataException("Expected an M2 MD21 wrapper.");
+            uint size = BitConverter.ToUInt32(inData, 4);
+            if (size > inData.Length - 8)
+                throw new InvalidDataException("MD21 wrapper payload extends beyond the M2 file.");
+            return new MD21(inData.AsSpan(8, checked((int)size)).ToArray());
         }
 
         /// <inheritdoc/>
@@ -164,9 +183,9 @@ namespace Warcraft.NET.Files.M2.Chunks
                     var ofsUnk2 = br.ReadUInt32();
                 }
 
-                br.BaseStream.Position = ofsModelname;
                 if (lenModelname > 0)
                 {
+                    br.BaseStream.Position = RelativeOffset(ofsModelname);
                     Name = new string(br.ReadChars((int)lenModelname));
                     Name = Name.Remove(Name.Length - 1);
                 }
@@ -186,7 +205,22 @@ namespace Warcraft.NET.Files.M2.Chunks
                 TextureLookup = ReadStructList<TextureLookupStruct>(nTexLookup, ofsTexLookup, br);
                 TransparencyLookup = ReadStructList<TransparencyLookupStruct>(nTransLookup, ofsTranslookup, br);
                 UVAnimLookup = ReadStructList<UVAnimLookupStruct>(nUVAnimLookup, ofsUVAnimLookup, br);
-                BoundingTriangles = ReadStructList<BoundingTriangleStruct>(nBoundingTriangles, ofsBoundingTriangles, br);
+                // MD20 stores a count of 16-bit collision indices here, not a count
+                // of three-index records.  Reading n entries as BoundingTriangleStruct
+                // overran into the bounding vertices on every collision-bearing M2.
+                var boundingIndices = ReadStructList<ushort>(nBoundingTriangles, ofsBoundingTriangles, br);
+                if (boundingIndices.Count % 3 != 0)
+                    throw new InvalidDataException("MD21 bounding-triangle index count is not divisible by three.");
+                BoundingTriangles = [];
+                for (var i = 0; i < boundingIndices.Count; i += 3)
+                {
+                    BoundingTriangles.Add(new BoundingTriangleStruct
+                    {
+                        Index0 = boundingIndices[i],
+                        Index1 = boundingIndices[i + 1],
+                        Index2 = boundingIndices[i + 2]
+                    });
+                }
                 BoundingVertices = ReadStructList<BoundingVertexStruct>(nBoundingVertices, ofsBoundingVertices, br);
                 BoundingNormals = ReadStructList<BoundingNormalStruct>(nBoundingNormals, ofsBoundingNormals, br);
                 Attachments = ReadStructList<AttachmentStruct>(nAttachments, ofsAttachments, br);
@@ -202,7 +236,8 @@ namespace Warcraft.NET.Files.M2.Chunks
 
         private List<T> ReadStructList<T>(uint count, uint offset, BinaryReader br) where T : struct
         {
-            br.BaseStream.Position = offset;
+            if (count == 0) return [];
+            br.BaseStream.Position = RelativeOffset(offset);
             List<T> list = [];
 
             for (var i = 0; i < count; i++)
@@ -211,9 +246,10 @@ namespace Warcraft.NET.Files.M2.Chunks
             return list;
         }
 
-        private static List<TextureStruct> ReadTextures(uint count, uint offset, BinaryReader br)
+        private List<TextureStruct> ReadTextures(uint count, uint offset, BinaryReader br)
         {
-            br.BaseStream.Position = offset;
+            if (count == 0) return [];
+            br.BaseStream.Position = RelativeOffset(offset);
             var textures = new TextureStruct[count];
 
             for (var i = 0; i < count; i++)
@@ -230,7 +266,7 @@ namespace Warcraft.NET.Files.M2.Chunks
                     if (ofsFilename >= 10)
                     {
                         var preFilenamePosition = br.BaseStream.Position; // probably a better way to do all this
-                        br.BaseStream.Position = ofsFilename;
+                        br.BaseStream.Position = RelativeOffset(ofsFilename);
                         var filename = new string(br.ReadChars(int.Parse(lenFilename.ToString())));
                         filename = filename.Replace("\0", "");
                         if (!filename.Equals(""))
@@ -248,7 +284,8 @@ namespace Warcraft.NET.Files.M2.Chunks
 
         private List<AnimationStruct> ReadAnimations(uint nAnimations, uint ofsAnimations, BinaryReader br)
         {
-            br.BaseStream.Position = ofsAnimations;
+            if (nAnimations == 0) return [];
+            br.BaseStream.Position = RelativeOffset(ofsAnimations);
             Dictionary<ushort, AnimationStruct> animations = new Dictionary<ushort, AnimationStruct>();
 
             for (var i = 0; i < nAnimations; i++)
@@ -258,6 +295,13 @@ namespace Warcraft.NET.Files.M2.Chunks
             }
 
             return animations.Values.ToList();
+        }
+
+        private long RelativeOffset(uint offset)
+        {
+            if (offset < sourceOffset)
+                throw new InvalidDataException($"MD21 offset {offset} precedes its payload base {sourceOffset}.");
+            return offset - sourceOffset;
         }
 
         /// <inheritdoc/>
@@ -577,7 +621,7 @@ namespace Warcraft.NET.Files.M2.Chunks
                     var ofsBoundingTriangles = ms.Position;
                     foreach (var boundingTriangle in BoundingTriangles)
                         bw.WriteStruct(boundingTriangle);
-                    UpdateHeaderInfo(bw, 216, (uint)BoundingTriangles.Count, (uint)ofsBoundingTriangles);
+                    UpdateHeaderInfo(bw, 216, checked((uint)BoundingTriangles.Count * 3), (uint)ofsBoundingTriangles);
                 }
 
                 if (BoundingVertices.Count > 0)
