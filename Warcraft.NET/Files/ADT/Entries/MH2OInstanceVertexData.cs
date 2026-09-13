@@ -64,7 +64,15 @@ namespace Warcraft.NET.Files.ADT.Entries
         /// <returns>The size.</returns>
         public static int GetSize(MH2OInstance instance)
         {
-            return (sizeof(float) * (instance.Height + 1) * (instance.Width + 1)) + (sizeof(byte) * (instance.Height + 1) * (instance.Width + 1));
+            var count = checked((instance.Height + 1) * (instance.Width + 1));
+            return instance.LiquidObjectOrVertexFormat switch
+            {
+                0 => checked(count * (sizeof(float) + sizeof(byte))),
+                1 => checked(count * (sizeof(float) + sizeof(ushort) * 2)),
+                2 => count,
+                3 => checked(count * (sizeof(float) + sizeof(ushort) * 2 + sizeof(byte))),
+                _ => 0
+            };
         }
 
         /// <inheritdoc/>
