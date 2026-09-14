@@ -180,6 +180,13 @@ namespace Warcraft.NET.Files.ADT.Terrain.MCNK
                     MapIndexY = br.ReadUInt32();
                     TextureLayerCount = br.ReadUInt32();
                     ModelReferenceCount = br.ReadUInt32();
+                    // Modern MCNK keeps the 64-bit high-resolution hole bitmap at
+                    // byte 0x14, overlaying the legacy offset slots.  It does not
+                    // expand the fixed 128-byte header, so read it by absolute
+                    // position while preserving the legacy fields for callers that
+                    // still inspect them.
+                    if (Flags.HasFlag(MCNKFlags.UsesHighResHoles))
+                        HighResHoles = System.BitConverter.ToUInt64(data, 0x14);
                     HeightmapOffset = br.ReadUInt32();
                     VertexNormalOffset = br.ReadUInt32();
                     TextureLayersOffset = br.ReadUInt32();
