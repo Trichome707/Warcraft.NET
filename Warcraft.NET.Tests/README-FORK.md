@@ -21,3 +21,8 @@ dead remote, not a code regression, and touches no chunk parsing.
 
 As of 2026-08-20: **21 passed, 4 failed, 25 total**, the 4 being those MVERTests. Anything else
 that fails is real.
+
+As of 2026-09-14: **23 passed, 4 failed, 27 total** -- the same 4 MVERTests, plus the two
+`MH2OTests` added with the `MH2O.Serialize` offset fix. At `885eca3`..`41a488e` the suite read
+**18 passed, 7 failed**: the three `MCLQTests` bridge tests had regressed, and the commit's
+evidence was a library build. A build is not a suite run -- run this suite before committing here.

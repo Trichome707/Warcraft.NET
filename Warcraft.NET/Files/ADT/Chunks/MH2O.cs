@@ -81,7 +81,11 @@ namespace Warcraft.NET.Files.ADT.Chunks
         {
             using var ms = new MemoryStream();
             using var bw = new BinaryWriter(ms);
+            // Reserve the fixed header table and start the offset-addressed data after it.
+            // SetLength alone leaves Position at 0, which placed the first layer's instance
+            // table over the header table that is written last.
             ms.SetLength(256 * MH2OHeader.GetSize());
+            ms.Position = ms.Length;
 
             foreach (var header in MH2OHeaders)
             {
